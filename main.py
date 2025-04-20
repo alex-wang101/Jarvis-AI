@@ -4,6 +4,14 @@ from langchain.prompts import (
     HumanMessagePromptTemplate,
 )
 from langchain_openai import ChatOpenAI
+import os 
+import dotenv
+from dotenv import load_dotenv
+from langchain import OpenAI
+from langchain.agents import Tool, initialize_agent, AgentType
+from gmail_service import (list_unread_messages, get_message_snippet, get_thread, send_email,)
+
+load_dotenv()
 
 system = SystemMessagePromptTemplate.from_template(
     """
