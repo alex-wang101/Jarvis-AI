@@ -28,6 +28,11 @@ Please take into account my preferences, important contacts, and any recurring t
 For example, if I ask about my schedule, respond with a summary of my upcoming appointments. If I request to send an email, draft the message based on my communication style.
 """
 )
+
+toolcalling = [
+    Tool(name="get_email_service", function=)
+]
+
 human = HumanMessagePromptTemplate.from_template("{user_input}")
 prompt = ChatPromptTemplate.from_messages([system, human])
 
