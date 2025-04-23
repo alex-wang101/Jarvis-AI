@@ -1,0 +1,15 @@
+current plans: 
+
+- implement search function for jarvis 
+- Finish connecting with gmail api, and figure out what happens when i run the program
+
+Future plans: 
+
+- Connect jarvis with a whisper (voice mimicking software)
+- Implement github api so jarvis has access to github
+- Figure out facebook developer portal log in
+
+
+
+# from gmail_service import list_unread_messages
+

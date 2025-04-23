@@ -4,9 +4,12 @@ from dotenv import load_dotenv
 from langchain.agents import Tool, initialize_agent, AgentType
 from langchain.memory import ConversationBufferMemory
 from langchain_community.tools import DuckDuckGoSearchRun
+from gmail_service import list_unread_messages
 from gmail_service import get_message_snippet
 from gmail_service import get_thread
 from gmail_service import send_email
+from langchain.tools import StructuredTool
+from pydantic import BaseModel, Field
 from langchain.prompts import (ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate)
 
 load_dotenv()
@@ -36,12 +39,35 @@ system = SystemMessagePromptTemplate.from_template(
 # Enables real-time online searching
 search = DuckDuckGoSearchRun()
 
+# Uses tools
+def draft_reply(to: str, subject: str, thread_context: str) -> str:
+    messages = prompt.format_messages(
+        user_input=thread_context + f"\nReply to {to} with subject {subject}."
+    )
+    return chat.invoke(messages).content
+
+class DraftReplyInput(BaseModel):
+    to: str = Field(..., description="Recipient email address")
+    subject: str = Field(..., description="Email subject line")
+    thread_context: str = Field(..., description="Previous conversation")
+
+draft_reply_tool = StructuredTool.from_function(
+    func=draft_reply,
+    name="draft_reply",
+    description="Draft a professional email reply.",
+    args_schema=DraftReplyInput,)
+
 # Tool calling function for api calling
 tools = [
+        Tool(
+        name="list_unread",
+        func=lambda _: list_unread_messages(),
+        description="Return a list of your unread Gmail message IDs."
+    ),
     Tool(
         name="DuckDuckGo Search",
-        func=search.run,
-        description="This is useful for seraching the internet for any real-time information (e.g. news, stocks, etc)"
+        func=lambda q: search.run(q)[:1000],
+        description="This is useful for seraching the internet for any real-time information (e.g. news, stocks, etc), limits at 1000 characters"
     ),
 
     Tool(
@@ -59,14 +85,20 @@ tools = [
         func=lambda args: draft_reply(**args),
         description=(
             "Draft an email reply based on context. "
-            "Args is a dict {to,subject,thread_context}."
+            "Args is a dict 'to', 'subject', 'thread_context'."
         )
     ),
     Tool(
         name="send_email",
         func=lambda args: send_email(**args),
-        description="Send an email. Args is a dict {to,subject,body}."
-    )
+        description="Send an email. Args is a dict 'to', 'subject', 'body'."),
+
+    draft_reply_tool,  
+    Tool(
+        name="send_email",
+        func=lambda d: send_email(**d),
+        description="Send an email. Expects keys: 'to', 'subject', 'body'.",
+    ),
 ]
 
 # Initializes human input into the llm taken from the user_input from main function, then sends the prompt to the llm in template form
@@ -74,57 +106,35 @@ human = HumanMessagePromptTemplate.from_template("{user_input}")
 prompt = ChatPromptTemplate.from_messages([system, human])
 
 chat = Ollama(
-    model="llama3", 
+    model="phi3:mini", 
     base_url="http://localhost:11434",
-    temperature=0.7
+    temperature=0.7,
 )
-
-def draft_reply(to: str, subject: str, thread_context: str) -> str:
-    """
-    The previous conversation is: 
-    {thread_context}
-
-    Write a reply to {to}, with a subject: {subject}
-
-    This is how you are going to write you email: 
-
-    You are an AI designed to assist in drafting professional email replies.Your task is to construct a response to an email, ensuring it maintains a professional tone.Below are the guidelines to follow: 
-    1. Analyze the content of the original email to grasp the main points, questions, or requests made by the sender.
-    2. **Professional Greeting**: Start with an appropriate salutation, using the sender's name and title if known (e.g., "Dear Mr. Smith," or "Hello Dr. Johnson,").
-    3. Briefly acknowledge the sender's email and the points they raised. This establishes rapport and shows that you value their communication.
-    4. Provide clear and concise answers to any questions posed, and address any requests made. Avoid jargon or overly complex language.
-    5. Use polite language throughout the email. Incorporate phrases like "Thank you for your inquiry," "I appreciate your patience," or "Please let me know if you need further assistance." 
-    6. End with a courteous closing statement, expressing willingness to assist further if needed (e.g., "Looking forward to your response," or "Please feel free to reach out with any more questions.").
-    7. Include a standard professional sign-off followed by your name and title (e.g., "Best regards, [Your Name], [Your Position]").
-
-    Example structure:
-    - Salutation
-    - Acknowledgment of the original email
-    - Responses to questions or requests
-    - Closing statement
-    - Signature
-
-    Generate a professional email reply based on the input conditions, ensuring all guidelines are followed.
-    """
-    # format messages and invoke Ollama
-    messages = prompt.format_messages(user_input=thread_context + f"\nReply to {to} with subject {subject}.")
-    return chat.invoke(messages).content
 
 agent = initialize_agent(
     tools,
     chat,
-    agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+    agent=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
     memory=memory,
-    verbose=True
+    max_execution_time=60,
+    max_iterations=4,
+    early_stopping_method="generate"
 )
 
 if __name__ == "__main__":
-    inital_input = input("HI, my name is Jarvis, your personal assisstant that can help you read emails, draft reply, read social media notifications, as well as managing your github workflow.")
-    while True:
-        user_input = input("How may I assist you today?")
-        if user_input.upper() in ("EXIT", "QUIT"):
-            print("Goodbye sir.")
-            break
+    print(
+        "HI, my name is Jarvis, your personal assistant that can help you read emails, "
+        "draft replies, read social-media notifications, and manage your GitHub workflow.",
+        flush=True,
+    )
+    prompt = True
+    print("How may I assist you today?", flush=True)
+    while prompt:
+        user_input = input("(Type exit/quit to exit)> ")
 
-        response = agent.run(user_input)
-        print("Jarvis: ", response)
+        if user_input.upper() in ("EXIT", "QUIT"):
+            print("Goodbye sir.", flush=True)
+            prompt = False
+        else:
+            response = agent.run(user_input)
+            print("Jarvis:", response, flush=True)
